@@ -181,7 +181,9 @@ InlinedVector<std::unique_ptr<GraphTransformer>> GenerateTransformers(
       transformers.emplace_back(std::make_unique<CommonSubexpressionElimination>());
       transformers.emplace_back(std::make_unique<ConstantFolding>(cpu_execution_provider, !disable_quant_qdq));
 #ifdef USE_XNNPACK
-      transformers.emplace_back(std::make_unique<XnnPackTransformer>(cpu_execution_provider.GetAllocator(0, OrtMemTypeDefault)));
+      auto default_cpu_allocator = cpu_execution_provider.GetAllocator(0, OrtMemTypeDefault);
+      transformers.emplace_back(std::make_unique<NhwcTransformer>(default_cpu_allocator));
+      transformers.emplace_back(std::make_unique<XnnPackTransformer>(default_cpu_allocator));
 #endif
       transformers.emplace_back(std::make_unique<MatMulAddFusion>());
       transformers.emplace_back(std::make_unique<ReshapeFusion>());
@@ -257,7 +259,9 @@ InlinedVector<std::unique_ptr<GraphTransformer>> GenerateTransformers(
         transformers.emplace_back(std::make_unique<NchwcTransformer>());
       }
       auto cpu_allocator = cpu_execution_provider.GetAllocator(0, OrtMemTypeDefault);
+#ifndef USE_XNNPACK
       transformers.emplace_back(std::make_unique<NhwcTransformer>(std::move(cpu_allocator)));
+#endif
 #endif
     } break;
 

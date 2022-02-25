@@ -60,6 +60,44 @@ Status NhwcTransformer::ApplyImpl(Graph& graph, bool& modified, int graph_level,
 
       modified = true;
     }
+    //Currently mlas doesn't NHWC Conv. So we only do the conversion when xnnpack is enabled
+#ifdef USE_XNNPACK
+    else if (node->OpType() == "Conv") {
+      auto domain = node->Domain();
+
+      // Skip if domain is incorrect
+      if (domain != kOnnxDomain && domain != kOnnxDomainAlias) {
+        continue;
+      }
+
+      // Skip if unknown rank
+      auto shape = NodeFromApiNode(*node).InputDefs()[0]->Shape();
+      if (shape == nullptr) {
+        continue;
+      }
+
+      // Convert to channels last
+      size_t rank = shape->dim_size();
+      std::vector<int64_t> input_perm = onnx_layout_transformation::ChannelFirstToLastPerm(rank);
+      std::vector<int64_t> output_perm = onnx_layout_transformation::ChannelLastToFirstPerm(rank);
+      onnx_layout_transformation::WrapTransposesAroundNode(*api_graph, *node, {&input_perm}, {&output_perm});
+
+      if (domain != kMSDomain) {
+        auto inputs = node->Inputs();
+        auto outputs = node->Outputs();
+        auto new_node = api_graph->AddNode("NhwcConv", inputs, outputs.size(), kMSDomain, node->Name());
+        for (size_t j = 0; j < outputs.size(); ++j) {
+          if (outputs[j] != "") {
+            api_graph->MoveOutput(*node, j, *new_node, j);
+          }
+        }
+        new_node->CopyAttributes(*node);
+        api_graph->RemoveNode(*node);
+      }
+
+      modified = true;
+    }
+#endif
   }
 
   if (modified) {
